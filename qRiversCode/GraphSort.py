@@ -116,10 +116,17 @@ def saveGraph(G, opath):
     nx.write_gpickle(G, opath)
 
 
-def GraphSort(H, df):
+def GraphSort(H, df, es):
+
     df['idx'] = df.index
-    start = 0
-    end = list(H.nodes)[-1]
+
+    if es == 'EW':
+        start = df[df['rowi'] == df['rowi'].min()].index[0]
+        end = df[df['rowi'] == df['rowi'].max()].index[0]
+
+    if es == 'NS':
+        start = df[df['coli'] == df['coli'].min()].index[0]
+        end = df[df['coli'] == df['coli'].max()].index[0]
 
     # Sort the shuffled DataFrame
     path = np.array(
@@ -127,7 +134,6 @@ def GraphSort(H, df):
     )
 
     return df.iloc[path].reset_index(drop=True)
-    centerlineSort2 = df.iloc[path].reset_index(drop=True)
 
 
 if __name__=='__main__':

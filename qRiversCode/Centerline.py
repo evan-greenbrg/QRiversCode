@@ -5,7 +5,7 @@ import copy
 
 import pandas
 import scipy
-from scipy import spatial
+from scipy import spatial, ndimage
 from skimage import measure, draw, morphology, feature, graph
 from skimage.morphology import medial_axis, skeletonize, thin, binary_closing
 import numpy as np
@@ -25,7 +25,8 @@ def getLargest(mask):
     return cc
 
 
-def getCenterline(mask):
+def getCenterline(mask, smoothing):
+
     labels = measure.label(mask)
      # assume at least 1 CC
     assert( labels.max() != 0 )
@@ -33,12 +34,13 @@ def getCenterline(mask):
     # Find largest connected component
     bins = np.bincount(labels.flat)[1:] 
     cc = labels == np.argmax(np.bincount(labels.flat)[1:])+1
-
+    filt = ndimage.maximum_filter(cc, size=smoothing)
     # Find skeletonized centerline
 #    cc = morphology.binary_closing(cc)
 #    cc = morphology.binary_erosion(cc)
 #    cc = morphology.binary_dilation(cc)
-    skeleton = skeletonize(cc, method='lee')
+    skeleton = skeletonize(filt, method='lee')
+
 #    skeleton = medial_axis(cc)
     skeleton = thin(skeleton)
 

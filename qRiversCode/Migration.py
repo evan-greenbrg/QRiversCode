@@ -18,7 +18,9 @@ from osgeo import osr
 from matplotlib.widgets import Button
 from matplotlib import pyplot as plt
 from shapely import geometry
+from shapely import errors
 from shapely.geometry import Polygon
+from shapely.geometry import MultiPolygon
 from shapely.geometry import LineString
 from shapely.geometry import MultiLineString
 from shapely.geometry import Point 
@@ -231,7 +233,7 @@ def findCutoffs(I, xy1, xy2, cutoffthresh=3000):
     return cutoffs
 
 
-def splitIntoChunks(cutoffs, xy1, xy2):
+def splitIntoChunks(I, xy1, xy2):
     """
     Splits centerlines into chunks that do not include channel cutoffs
 
@@ -248,16 +250,16 @@ def splitIntoChunks(cutoffs, xy1, xy2):
     curindex2 = 0
     segments1 = []
     segments2 = []
-    for idx, cutoff in enumerate(cutoffs):
-        segments1.append(xy1[curindex1:int(cutoff[0])])
-        segments2.append(xy2[curindex2:int(cutoff[2])])
+    for idx, ind in enumerate(I):
+        segments1.append(xy1[curindex1:int(ind[0])])
+        segments2.append(xy2[curindex2:int(ind[1])])
 
-        curindex1 = int(cutoff[1])
-        curindex2 = int(cutoff[3])
+        curindex1 = int(ind[0])
+        curindex2 = int(ind[1])
 
-        if idx != len(cutoffs)-1:
-            nextindex1 = int(cutoffs[idx+1][0])
-            nextindex2 = int(cutoffs[idx+1][2])
+        if idx != len(I)-1:
+            nextindex1 = int(I[idx+1][0])
+            nextindex2 = int(I[idx+1][1])
 
             segments1.append(xy1[curindex1:nextindex1])
             segments2.append(xy2[curindex2:nextindex2])
@@ -272,7 +274,7 @@ def splitIntoChunks(cutoffs, xy1, xy2):
     return segments1, segments2
 
 
-def findMigratedArea(xy1seg, xy2seg):
+def findMigratedArea(xy1, xy2, I):
     """
     Finds the migrated area between two centerlines
     Inputs:
@@ -285,22 +287,30 @@ def findMigratedArea(xy1seg, xy2seg):
     polygons: list of segment polygons of migrated area
     areas: list of polygon areas
     """
-    # Empty list for polygon points
-    polygon_points = [] 
+    xy1segs, xy2segs = splitIntoChunks(I, xy1, xy2)
+    polygons = []
+    for xy1seg, xy2seg in zip(xy1segs, xy2segs):
+        if len(xy1seg) and len(xy2seg):
 
-    # append all xy points for curve 1
-    for xyvalue in xy1seg:
-        polygon_points.append([xyvalue[0], xyvalue[1]]) 
+            # Empty list for polygon points
+            polygon_points = [] 
 
-    # append all xy points for curve 2 in the reverse order
-    for xyvalue in xy2seg[::-1]:
-        polygon_points.append([xyvalue[0], xyvalue[1]]) 
+            # append all xy points for curve 1
+            for xyvalue in xy1seg:
+                polygon_points.append([xyvalue[0], xyvalue[1]]) 
 
-    # append the first point in curve 1 again, to it "closes" the polygon
-    for xyvalue in xy1seg[0:1]:
-        polygon_points.append([xyvalue[0], xyvalue[1]]) 
+            # append all xy points for curve 2 in the reverse order
+            for xyvalue in xy2seg[::-1]:
+                polygon_points.append([xyvalue[0], xyvalue[1]]) 
 
-    return Polygon(polygon_points)
+            # append the first point in curve 1 again, to it "closes" the polygon
+            for xyvalue in xy1seg[0:1]:
+                polygon_points.append([xyvalue[0], xyvalue[1]]) 
+
+            p = Polygon(polygon_points).buffer(0)
+            polygons.append(p)
+
+    return MultiPolygon(polygons)
 
 
 def getDirection(xy, n):
@@ -407,7 +417,8 @@ def getMigrationWindow(location, direction, crosslen, crosswidth):
     return Polygon(window_points)
 
 
-def channelMigrationPoly(polyt1, polyt2, centerlinet1, centerlinet2, crosslen, smoothing=5, crosswidth=5):
+def channelMigrationPoly(polyt1, polyt2, centerlinet1, centerlinet2, 
+                         crosslen, smoothing=5, crosswidth=5):
     # Find the polygon from the difference between the two channels
     diff_poly = polyt2.difference(polyt1)
 
@@ -436,17 +447,56 @@ def channelMigrationPoly(polyt1, polyt2, centerlinet1, centerlinet2, crosslen, s
 def channelMigrationCenterline(line1, line2, crosslen, 
                                crosswidth=5, xcol='rowi', ycol='coli'):
 
+#    test1_path = 'width/RedIndex_1995_Width.csv'
+#    test2_path = 'width/RedIndex_2005_Width.csv'
+#    line1 = pandas.read_csv(test1_path)
+#    line2 = pandas.read_csv(test2_path)
+#
+#    graphpath1 = 'graph/RedIndex_1995_Graph'
+#    graphpath2 = 'graph/RedIndex_2005_Graph'
+#    with open(graphpath1, 'rb') as f:
+#        graph1 = pickle.load(f)
+#    with open(graphpath2, 'rb') as f:
+#        graph2 = pickle.load(f)
+#
+#    # GraphSort Centerlines
+#    line1 = GraphSort(
+#        graph1,
+#        line1,
+#        'EW' 
+#    )
+#
+#    line2 = GraphSort(
+#        graph2,
+#        line2,
+#        'EW'
+#    )
+
     # Load Data
     x1 = line1[xcol].values
     y1 = line1[ycol].values
     x2 = line2[xcol].values
     y2 = line2[ycol].values
+
     xy1 = numpy.vstack([x1, y1]).transpose()
     xy2 = numpy.vstack([x2, y2]).transpose()
 
-    # Get Polygon between centerlines
-    polygon = findMigratedArea(xy1, xy2).buffer(0)
+    ix, iy = intersection(x1, y1, x2, y2)
+    ixy = numpy.vstack([ix, iy]).transpose()
+    i1, i2 = coordToIndex(ixy, xy1, xy2)
+    I = numpy.vstack([i1, i2]).transpose()
 
+    # Get Polygon between centerlines
+#    plt.plot(line1[xcol], line1[ycol])
+#    plt.plot(line2[xcol], line2[ycol])
+#    plt.scatter(line2.iloc[102][xcol], line2.iloc[102][ycol])
+#
+#    for p in polygon:
+#        x,y = p.exterior.xy
+#        plt.plot(x,y)
+#    plt.show()
+
+    polygon = findMigratedArea(xy1, xy2, I)
     cross_dirs = getDirection(xy2, 5)
     xprop = crosslen
     yprop = crosslen
@@ -459,8 +509,15 @@ def channelMigrationCenterline(line1, line2, crosslen,
             crosslen, 
             crosswidth
         )
-        migrated_poly = polygon.intersection(window_poly)
-        migration_distances.append(migrated_poly.area / (2 * crosswidth))
+
+        try:
+            migrated_poly = polygon.intersection(window_poly)
+
+            migration_distances.append(
+                migrated_poly.area / (2 * crosswidth)
+            )
+        except errors.TopologicalError:
+            migration_distances.append(None)
 
     return migration_distances
 
@@ -840,7 +897,7 @@ def getCutoffPoints(cutoff_path, graph_path, clpath2):
 
 def qMigration(time1, polypath1, clpath1, graphpath1,
                time2, polypath2, clpath2, graphpath2,
-               cutoff):
+               cutoff, es):
     """
     year: int
     polypath: str path
@@ -848,7 +905,6 @@ def qMigration(time1, polypath1, clpath1, graphpath1,
     graphpath: str path
     cutoff: numpy ar
     """
-
     # Load river polygons
     with open(polypath1, 'rb') as f:
         poly1 = pickle.load(f)
@@ -860,8 +916,12 @@ def qMigration(time1, polypath1, clpath1, graphpath1,
     cl2 = pandas.read_csv(clpath2)
 
     # Load graphs
-    graph1 = nx.read_gpickle(graphpath1)
-    graph2 = nx.read_gpickle(graphpath2)
+    with open(graphpath1, 'rb') as f:
+        graph1 = pickle.load(f)
+    with open(graphpath2, 'rb') as f:
+        graph2 = pickle.load(f)
+#    graph1 = nx.read_gpickle(graphpath1)
+#    graph2 = nx.read_gpickle(graphpath2)
 
     # Find curvature
     cl2['curvature'] = getCurvature(graph2, cl2)
@@ -870,11 +930,13 @@ def qMigration(time1, polypath1, clpath1, graphpath1,
     clSort1 = GraphSort(
         graph1,
         cl1,
+        es
     )
 
     clSort2 = GraphSort(
         graph2,
         cl2,
+        es
     )
 
     # Get migration from two sorted centerlines

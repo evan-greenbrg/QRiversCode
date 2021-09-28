@@ -13,7 +13,7 @@ from matplotlib import pyplot as plt
 from qRiversCode.GraphSort import getGraph, GraphSort
 
 
-def getNeighboringPoints(G, node, n=3):
+def getNeighboringPoints(G, node, n=5):
     # How many edges is the node attached to?
     node_edges = list(G.edges(node))
 
@@ -27,7 +27,7 @@ def getNeighboringPoints(G, node, n=3):
         close_nodes = nx.ego_graph(
             G,
             node,
-            radius=2,
+            radius=n-1,
             center=True,
             undirected=False,
             distance=None
@@ -37,7 +37,7 @@ def getNeighboringPoints(G, node, n=3):
         close_nodes = nx.ego_graph(
             G,
             node,
-            radius=1,
+            radius=n-2,
             center=True,
             undirected=False,
             distance=None
@@ -54,30 +54,33 @@ def calculateCurvature(points, node):
     ys = np.array(points['northing'])
 
     # Fit Poly x
-    np.warnings.filterwarnings('ignore')
-    xz = np.polyfit(ss, xs, deg=3)
-    px = np.poly1d(xz)
-    xz1 = np.polyder(px, m=1)
-    xz2 = np.polyder(px, m=2)
+    try:
+        np.warnings.filterwarnings('ignore')
+        xz = np.polyfit(ss, xs, deg=3)
+        px = np.poly1d(xz)
+        xz1 = np.polyder(px, m=1)
+        xz2 = np.polyder(px, m=2)
 
-    # Fit Poly y
-    yz = np.polyfit(ss, ys, deg=3)
-    py = np.poly1d(yz)
-    yz1 = np.polyder(py, m=1)
-    yz2 = np.polyder(py, m=2)
+        # Fit Poly y
+        yz = np.polyfit(ss, ys, deg=3)
+        py = np.poly1d(yz)
+        yz1 = np.polyder(py, m=1)
+        yz2 = np.polyder(py, m=2)
 
-    # Get derivatives
-    dxds = xz1(s)
-    d2xds2 = xz2(s)
+        # Get derivatives
+        dxds = xz1(s)
+        d2xds2 = xz2(s)
 
-    dyds = yz1(s)
-    d2yds2 = yz2(s)
+        dyds = yz1(s)
+        d2yds2 = yz2(s)
 
-    # Get Curvature
-    C = (
-        ((dxds * d2yds2) - (dyds * d2xds2))
-        / (((dxds**2) + (dyds**2))**(3/2))
-    )
+        # Get Curvature
+        C = (
+            ((dxds * d2yds2) - (dyds * d2xds2))
+            / (((dxds**2) + (dyds**2))**(3/2))
+        )
+    except:
+        C = None
 
     return C
 
@@ -147,8 +150,8 @@ def getCurvature(G, centerline):
         for idx, point in points.iterrows():
             epsg = findEPSG(point['x'], point['y'])
             x, y = transform_coordinates(
-                point['x'],
                 point['y'],
+                point['x'],
                 4326,
                 int(epsg)
             )
