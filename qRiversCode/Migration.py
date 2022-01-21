@@ -308,6 +308,8 @@ def findMigratedArea(xy1, xy2, I):
                 polygon_points.append([xyvalue[0], xyvalue[1]]) 
 
             p = Polygon(polygon_points).buffer(0)
+            if p.geom_type == 'MultiPolygon':
+                continue
             polygons.append(p)
 
     return MultiPolygon(polygons)
@@ -423,7 +425,7 @@ def channelMigrationPoly(polyt1, polyt2, centerlinet1, centerlinet2,
     diff_poly = polyt2.difference(polyt1)
 
     # Iterate over centerline time 2
-    xy = numpy.array(centerlinet2[['coli', 'rowi']])
+    xy = numpy.array(centerlinet1[['coli', 'rowi']])
     cross_dirs = getDirection(
         xy, 
         smoothing
@@ -486,23 +488,13 @@ def channelMigrationCenterline(line1, line2, crosslen,
     i1, i2 = coordToIndex(ixy, xy1, xy2)
     I = numpy.vstack([i1, i2]).transpose()
 
-    # Get Polygon between centerlines
-#    plt.plot(line1[xcol], line1[ycol])
-#    plt.plot(line2[xcol], line2[ycol])
-#    plt.scatter(line2.iloc[102][xcol], line2.iloc[102][ycol])
-#
-#    for p in polygon:
-#        x,y = p.exterior.xy
-#        plt.plot(x,y)
-#    plt.show()
-
     polygon = findMigratedArea(xy1, xy2, I)
-    cross_dirs = getDirection(xy2, 5)
+    cross_dirs = getDirection(xy1, 5)
     xprop = crosslen
     yprop = crosslen
-
+    
     migration_distances = []
-    for idx, (location, direction) in  enumerate(zip(xy2, cross_dirs)):
+    for idx, (location, direction) in  enumerate(zip(xy1, cross_dirs)):
         window_poly = getMigrationWindow(
             location, 
             direction, 
@@ -510,17 +502,25 @@ def channelMigrationCenterline(line1, line2, crosslen,
             crosswidth
         )
 
+#        # Get Polygon between centerlines
+#        p = gpd.GeoSeries(window_poly)
+#        ax = p.plot()
+#        ax.plot(line1[xcol], line1[ycol], color='red')
+#        ax.plot(line2[xcol], line2[ycol], color='green')
+# 
+#        plt.show()
+
         try:
             migrated_poly = polygon.intersection(window_poly)
 
             migration_distances.append(
                 migrated_poly.area / (2 * crosswidth)
             )
+
         except errors.TopologicalError:
             migration_distances.append(None)
 
     return migration_distances
-
 
 
 def channelMigrationOld(root, year1, year2, river, cutoffthresh,
@@ -879,6 +879,8 @@ def getCutoffPoints(cutoff_path, graph_path, clpath2):
 
         us_distance, us_neighbor = tree.query(usxy)
         ds_distance, ds_neighbor = tree.query(dsxy)
+        if us_distance > .2:
+            continue
 
         path = numpy.array(
             nx.shortest_path(
@@ -897,7 +899,7 @@ def getCutoffPoints(cutoff_path, graph_path, clpath2):
 
 def qMigration(time1, polypath1, clpath1, graphpath1,
                time2, polypath2, clpath2, graphpath2,
-               cutoff, es):
+               cutoff, es, crosslen=20):
     """
     year: int
     polypath: str path
@@ -940,27 +942,29 @@ def qMigration(time1, polypath1, clpath1, graphpath1,
     )
 
     # Get migration from two sorted centerlines
-    cl2['migration_centerline'] = None
-    clSort2['migration_centerline'] = channelMigrationCenterline(
+    cl1['migration_centerline'] = None
+    clSort1['migration_centerline'] = channelMigrationCenterline(
         clSort1,
         clSort2,
-        cl2['width'].mean()
+        crosslen
+#        cl2['width'].mean()
     )
     
     # Set values in other dataframe
-    for idx, row in clSort2.iterrows():
-        cl2.at[
+    for idx, row in clSort1.iterrows():
+        cl1.at[
             row['idx'],
             'migration_centerline'
         ] = row['migration_centerline']
 
     # Get migration from differencing two polys
-    cl2['migration_poly'] = channelMigrationPoly(
+    cl1['migration_poly'] = channelMigrationPoly(
         poly1, 
         poly2, 
         cl1, 
         cl2, 
-        cl2['width'].mean()
+        crosslen
+#        cl2['width'].mean()
     )
 
     # Get time between two images
@@ -968,16 +972,14 @@ def qMigration(time1, polypath1, clpath1, graphpath1,
     dt2 = datetime.strptime(time2, '%Y-%m-%d')
     span = round((dt2 - dt1).days / 365, 2)
 
-    cl2['span'] = span 
+    cl1['span'] = span 
 
     # Remove cutoff points
-    cl2['cutoff'] = 0
+    cl1['cutoff'] = 0
     if len(cutoff):
         for i, row in cutoff.iterrows():
-            cl2.at[row['index'], 'cutoff'] = row['cutoff']
-            cl2.at[row['index'], 'migration_centerline'] = None
-            cl2.at[row['index'], 'migration_poly'] = None
+            cl1.at[row['index'], 'cutoff'] = row['cutoff']
+            cl1.at[row['index'], 'migration_centerline'] = None
+            cl1.at[row['index'], 'migration_poly'] = None
 
-    return cl2
-
-
+    return cl1

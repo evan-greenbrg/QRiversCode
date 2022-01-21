@@ -100,9 +100,13 @@ def intersectionWidth(segment, cross_section, river_poly):
     # Find coordinates where there is intersection
 
     # Have to handle the error if there are multiple points
+    inter = cross_section.intersection(river_poly.buffer(0))
+    if inter.geom_type == 'LineString':
+        if len(inter.coords) < 2:
+            return None, np.empty(0)
     try:
         intersect_coords = np.array(
-            cross_section.intersection(river_poly.buffer(0)).xy
+            inter.xy
         ).transpose()
     except NotImplementedError:
         inters = cross_section.intersection(river_poly.buffer(0))
@@ -131,6 +135,8 @@ def intersectionWidth(segment, cross_section, river_poly):
     tree = spatial.KDTree(intersect_coords)
     distance, neighbors = tree.query(segment, 2)
 
+    if len(intersect_coords) < 2:
+        return None, np.empty(0)
     width_points = intersect_coords[neighbors]
 
     return np.linalg.norm(width_points[0]-width_points[1]), width_points
@@ -165,6 +171,10 @@ def sortCenterline(centerline_i):
 
 def getWidths(mask, centerline, step=5):
     channel = cleanChannel(mask)
+    channel[:, 0] = 0
+    channel[:, -1] = 0
+    channel[0, :] = 0
+    channel[-1, :] = 0
     contours = measure.find_contours(channel, 0.5, fully_connected='high')
 
     # Get centerline steps
@@ -258,7 +268,7 @@ def getWidth(centerlinepath, maskpath, step):
 
 
 if __name__=='__main__':
-    centerlinepath = '/Users/greenberg/Documents/PHD/Projects/Chapter2/qRivers/Testing/centerline/beni_1986_1_centerline'
-    maskpath = '/Users/greenberg/Documents/PHD/Projects/Chapter2/qRivers/Testing/mask/beni_1986_1_mask'
+    centerlinepath = centerline
+    maskpath =  mask
 
-    step = 5
+    step = 1
